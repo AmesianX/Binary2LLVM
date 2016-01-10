@@ -35,6 +35,10 @@ BPatch_addressSpace *startInstrumenting(accessType_t accessType,
     return handle;
 }
 
+
+
+
+
 void iterateThroughFunction(BPatch_addressSpace * app,
  char* functionName, llvm::Module* go)
 {
@@ -42,17 +46,45 @@ void iterateThroughFunction(BPatch_addressSpace * app,
     std::vector<BPatch_function *> functions;
     BPatch_image *appImage = app->getImage();
     appImage->findFunction(functionName, functions);
+    if(functions.empty())
+        return;
+    bin2llvmFunction b2f(functions[0],go);
+    llvm::Function* funcCreated = b2f.makeFunction();
     BPatch_flowGraph *fg = functions[0]->getCFG();
     std::set<BPatch_basicBlock *> blocks;
     fg->getAllBasicBlocks(blocks);
     std::set<BPatch_basicBlock *>::iterator block_iter;
+
+
     int insns_access_memory=0;
     int totalNumInst = 0;
     // find all the points of function call
     llvm::outs()<<"try to find fnctl\n";
     std::vector<BPatch_point*>* allCallPoint = functions[0]->findPoint(BPatch_subroutine);
+
+    std::map<BPatch_point*,Dyninst::InstructionAPI::Instruction::Ptr> pt2ins;
+
     for(auto callPtIter = allCallPoint->begin(); callPtIter!= allCallPoint->end(); callPtIter++)
     {
+        //BPatch_point* curPt = *callPtIter;
+
+        Dyninst::InstructionAPI::Instruction::Ptr curInsPtr = (*callPtIter)->getInsnAtPoint();
+        if(curInsPtr == 0)
+        {
+            llvm::outs()<<"not found\n";
+            void* insAddr = (*callPtIter)->getAddress();
+            llvm::outs()<<insAddr<<"\n";
+        }
+        else
+        {
+            pt2ins[*callPtIter] = curInsPtr;
+            llvm::outs()<<curInsPtr->format()<<"\n";
+        }
+        if((*callPtIter)->isDynamic())
+        {
+            llvm::outs()<<"dynamic call site, skip\n";
+            continue;
+        }
         BPatch_function* calledFunc = (*callPtIter)->getCalledFunction();
         if(calledFunc)
             llvm::outs()<<calledFunc->getName()<<"\n";
@@ -64,13 +96,17 @@ void iterateThroughFunction(BPatch_addressSpace * app,
     for (block_iter = blocks.begin(); block_iter != blocks.end(); ++block_iter)
     {
         BPatch_basicBlock *block = *block_iter;
+        // we create a new basic block here
+
+
+
         std::vector<Dyninst::InstructionAPI::Instruction::Ptr> insns;
         block->getInstructions(insns);
         std::vector<Dyninst::InstructionAPI::Instruction::Ptr>::iterator insn_iter;
         for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
         {
             Dyninst::InstructionAPI::Instruction::Ptr insn = *insn_iter;
-            llvm::outs()<<insn->format()<<"\t\t\t\t\t";
+            llvm::outs()<<insn->ptr()<<" "<<insn->format()<<"\t\t\t\t\t";
             totalNumInst++;
             std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
             insn->getReadSet( regsRead);

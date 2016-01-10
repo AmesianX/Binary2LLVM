@@ -33,10 +33,19 @@ bin2llvmBasicBlock::bin2llvmBasicBlock(BPatch_basicBlock* obb, Function* top):bb
 }
 BasicBlock* bin2llvmBasicBlock::makeBasicBlock()
 {
-    return 0;
+
+    BasicBlock* newBB = llvm::BasicBlock::Create(parent->getContext(),"BasicBlock",parent);
+    populateBasicBlock(newBB);
+    return newBB;
 }
-void bin2llvmBasicBlock::populateBasicBlock()
+void bin2llvmBasicBlock::populateBasicBlock(BasicBlock* popTgt)
 {
+    // first check whatever registers are live
+    // here, and check if they have divergent sources?
+    BPatch_point* ept = bblock->findEntryPoint();
+    std::vector<BPatch_register> curLiveRegs;
+    ept->getLiveRegisters(curLiveRegs);
+
     return;
 }
 
@@ -51,14 +60,36 @@ void bin2llvmInstruction::generateInstruction(IRBuilder<>& bbBuilder)
 bin2llvmFunction::bin2llvmFunction(BPatch_function* of,Module* top):func(of),parent(top)
 {
 }
-// there
+// we will always return void and takes in nothing for that function
+// as everything will be read off the stack and push onto the stack
 Function* bin2llvmFunction::makeFunction()
 {
 
-    return 0;
+    LLVMContext& context = parent->getContext();
+    Type* rtType = Type::getVoidTy(context);
+    std::vector<Type*> paramsType;FunctionType* newFuncType = FunctionType::get(rtType,ArrayRef<Type*>(paramsType),false);
+    std::string partFuncName = this->func->getName();
+    Constant* tmpFuncC = parent->getOrInsertFunction(partFuncName, newFuncType);
+    Function* actualNewFunc = cast<Function>(tmpFuncC);
+    populateFunction(actualNewFunc);
+    return actualNewFunc;
 }
-void bin2llvmFunction::populateFunction()
+void bin2llvmFunction::populateFunction(llvm::Function* popTgt)
 {
+    BPatch_flowGraph *fg = func->getCFG();
+    std::set<BPatch_basicBlock *> blocks;
+    fg->getAllBasicBlocks(blocks);
+    std::set<BPatch_basicBlock *>::iterator block_iter;
+    for (block_iter = blocks.begin(); block_iter != blocks.end(); ++block_iter)
+    {
+        BPatch_basicBlock *block = *block_iter;
+        // make basic block
+        bin2llvmBasicBlock b2b(block,popTgt);
+        llvm::BasicBlock* curBB = b2b.makeBasicBlock();
+
+
+    }
+
 
 }
 

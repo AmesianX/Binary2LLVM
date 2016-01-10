@@ -45,7 +45,7 @@ class bin2llvmFunction
 public:
     bin2llvmFunction(BPatch_function* of,llvm::Module* top);
     llvm::Function* makeFunction();
-    void populateFunction();
+    void populateFunction(llvm::Function* popTgt);
 private:
     BPatch_function* func;
     llvm::Module* parent;
