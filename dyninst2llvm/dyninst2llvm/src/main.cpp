@@ -7,6 +7,11 @@
 #include "BPatch_flowGraph.h"
 #include <string>
 #include "buildLLVM.h"
+#include "buildC.h"
+#include <boost/lexical_cast.hpp>
+using namespace Dyninst::InstructionAPI;
+//typedef Dyninst::InstructionAPI::Expression insAPIExp;
+//typedef Dyninst::InstructionAPI::Instruction insAPIIns;
 // Example 1: create an instance of class BPatch
 BPatch bpatch;
 // Example 2: attaching, creating, or opening a file for rewrite
@@ -36,9 +41,189 @@ BPatch_addressSpace *startInstrumenting(accessType_t accessType,
 }
 
 
+BPatch_function* extractFunction(BPatch_addressSpace * app,
+                     char* functionName)
+{
+    std::vector<BPatch_function *> functions;
+    BPatch_image *appImage = app->getImage();
+    appImage->findFunction(functionName, functions);
+    if(functions.empty())
+        return 0;
+    else
+        return functions[0];
+}
+
+
+void basicBlockExperiments(BPatch_basicBlock* curBB,
+                           std::map<BPatch_basicBlock*,std::string>& seenBlocks)
+{
+    std::string curBBName = seenBlocks[curBB];
+    std::cout<<"into basic block "<<curBBName<<"\n";
+
+
+    std::vector<Instruction::Ptr> insns;
+    curBB->getInstructions(insns);
+    std::vector<Instruction::Ptr>::iterator insn_iter;
+    for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
+    {
+        Instruction::Ptr insn = *insn_iter;
+        std::cout<<insn->format()<<"\t:\n";
+        /*
+        if(insn->readsMemory())
+        {
+            std::set<Expression::Ptr> allMemRead;
+            insn->getMemoryReadOperands(allMemRead);
+            for(auto allMemReadIter = allMemRead.begin(); allMemReadIter!=allMemRead.end();
+                allMemReadIter++)
+            {
+                Expression::Ptr curMemReadExp = *allMemReadIter;
+                std::cout<<curMemReadExp->format()<<"\n";
+
+                std::vector<Expression::Ptr> allExpressionChildren;
+                curMemReadExp->getChildren(allExpressionChildren);
+                std::cout<<"\teval mem exp:" <<curMemReadExp->eval().format()<<"\n";
+                for(auto childrenIter = allExpressionChildren.begin();
+                    childrenIter!=allExpressionChildren.end();
+                    childrenIter++)
+                {
+                    Expression::Ptr curChild = *childrenIter;
+                    std::cout<<"\t\t"<<curChild->format()<<"\n";
+                    std::cout<<"\t\t"<<curChild->eval().format()<<"\n";
+                }
+            }
+        }*/
+    }
+
+
+}
+
+
+static std::string getBBName(BPatch_basicBlock* curBB)
+{
+    std::string curName="BB";
+    curName+=boost::lexical_cast<std::string>(curBB->getBlockNumber());
+
+    return curName;
+}
+
+std::string headBasicGraphExperiments(BPatch_basicBlock* curHead,
+                               BPatch_basicBlockLoop* containerLoop,
+                               std::map<BPatch_basicBlock*,std::string>& seenBlocks)
+{
+    if(!containerLoop->hasBlock(curHead))
+        return "";
+    if(seenBlocks.count(curHead))
+    {
+        return seenBlocks[curHead];
+    }
+    std::string curBBName = getBBName(curHead);
+    seenBlocks[curHead]=curBBName;
 
 
 
+    // then branch to all target
+    std::vector<BPatch_basicBlock*> allTarget;
+    curHead->getTargets(allTarget);
+    std::vector<BPatch_edge*> allOutEdges;
+    curHead->getOutgoingEdges(allOutEdges);
+    std::vector<BPatch_edgeType> destinationTypes;
+    std::vector<std::string> destinationNames;
+    for(auto edgeIter = allOutEdges.begin();
+        edgeIter!=allOutEdges.end();
+        edgeIter++)
+    {
+        BPatch_edge* curOutEdge = *edgeIter;
+        BPatch_edgeType ety = curOutEdge->getType();
+        BPatch_basicBlock* nextHop = curOutEdge->getTarget();
+        destinationNames.push_back( headBasicGraphExperiments(nextHop,containerLoop,seenBlocks));
+        destinationTypes.push_back(ety);
+    }
+
+
+    /*for(auto targetIter = allTarget.begin();
+        targetIter!=allTarget.end();
+        targetIter++)
+    {
+        BPatch_basicBlock* nextHop = *targetIter;
+        destinationNames.push_back( headBasicGraphExperiments(nextHop,containerLoop,seenBlocks));
+
+    }*/
+    std::cout<<"BasicBlock "<<curBBName<< " branches to : ";
+    auto destNameIter = destinationNames.begin();
+    auto destTypeIter = destinationTypes.begin();
+    for(;
+        destNameIter!=destinationNames.end();
+        destNameIter++, destTypeIter++)
+    {
+        std::cout<<*destNameIter<<":";
+        std::cout<<*destTypeIter;
+        std::cout<<"\t";
+    }
+    std::cout<<"\n";
+    // now deal with this block itself
+    basicBlockExperiments(curHead,seenBlocks);
+    return  seenBlocks[curHead];
+
+}
+
+void loopExperiments(BPatch_basicBlockLoop* curLoop)
+{
+    std::vector<BPatch_basicBlock*> loopEntries;
+    curLoop->getLoopEntries(loopEntries);
+    assert(loopEntries.size()>0 && "no loop entry found");
+    BPatch_basicBlock* lEntry = loopEntries.at(0);
+    // from this point, we do depth first search
+    // for all the basicblocks in the loop
+    std::map<BPatch_basicBlock*,std::string> seenBlocks;
+    headBasicGraphExperiments(lEntry,curLoop,seenBlocks);
+    //std::vector<BPatch_basicBlock*> allBBs;
+    //curLoop->getLoopBasicBlocks(allBBs);
+    // for each of the instruction, check the result
+    // type, and check the register
+
+
+}
+
+// make a function to try out
+// various features in the APIs
+void experiments(BPatch_addressSpace * app,
+                 char* functionName)
+{
+    BPatch_function* curFun = extractFunction(app, functionName);
+    BPatch_flowGraph *fg = curFun->getCFG();
+    //fg->getAllBasicBlocks(blocks);
+    std::vector<BPatch_basicBlockLoop*> outerLoops;
+    fg->getOuterLoops(outerLoops);
+    std::cout<<"Num of outer loops: "<<outerLoops.size()<<"\n";
+    getchar();
+    for(auto outerLoopIter = outerLoops.begin(); outerLoopIter!= outerLoops.end();
+        outerLoopIter++)
+    {
+        loopExperiments(*outerLoopIter);
+        getchar();
+    }
+
+
+}
+
+
+
+
+void makeCFunction(BPatch_addressSpace * app,
+                   char* functionName)
+{
+    llvm::outs()<<"(convert 2 C function:)checking out function with name "<<functionName<<"\n";
+    std::vector<BPatch_function *> functions;
+    BPatch_image *appImage = app->getImage();
+    appImage->findFunction(functionName, functions);
+    if(functions.empty())
+        return;
+
+    buildCFunction bc(functions[0]);
+    bc.makeFunctionDecl();
+}
+
+/*
 void iterateThroughFunction(BPatch_addressSpace * app,
  char* functionName, llvm::Module* go)
 {
@@ -140,18 +325,7 @@ void iterateThroughFunction(BPatch_addressSpace * app,
             }
 
 
-            /*for(curRegReadIter = regsRead.begin();
-                    curRegReadIter!= regsRead.end();
-                    curRegReadIter++ )
-            {
-                llvm::outs()<<"\n"<<(*curRegReadIter)->format()<<"\n";
-                std::vector<Dyninst::InstructionAPI::InstructionAST::Ptr> uses;
-                (*curRegReadIter)->getChildren(uses);
-                for(auto useIter = uses.begin(); useIter!=uses.end(); useIter++)
-                {
-                    llvm::outs()<<"\t\tchild:"<<(*useIter)->format()<<" use \n";
-                }
-            }*/
+
 
 
             if (insn->readsMemory() || insn->writesMemory()) {
@@ -195,7 +369,7 @@ void iterateThroughFunction(BPatch_addressSpace * app,
     llvm::outs()<<insns_access_memory<<" memory accesses\n";
     llvm::outs()<<totalNumInst<<" instructions\n";
 }
-
+*/
 int main(int argc, char* argv[] ) {
     const char *progName = argv[1]; // = ...
     int progPID = 42; // = ...
@@ -205,11 +379,22 @@ int main(int argc, char* argv[] ) {
         progName,
         progPID,
         progArgv);
+    for(auto regIter = app->getRegisters_begin(); regIter!=app->getRegisters_end(); regIter++)
+    {
+        std::cout<<regIter->name();
+
+    }
+    //getchar();
+    /*
     buildLLVM llvmBuilder;
     llvm::Module* go = llvmBuilder.makeLLVMModule();
     iterateThroughFunction(app, argv[2],go);
     llvm::outs()<<"\n";
-    llvmBuilder.dumpModuleContent(go,llvm::outs());
-    // Example 2: get entry point
+    llvmBuilder.dumpModuleContent(go,llvm::outs());*/
+
+    // make the C module
+    //makeCFunction(app,argv[2]);
+
+    experiments(app,argv[2]);
     return 0;
 }

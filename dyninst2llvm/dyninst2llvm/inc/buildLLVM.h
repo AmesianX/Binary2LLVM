@@ -28,7 +28,7 @@
 #include "BPatch_point.h"
 #include "BPatch_flowGraph.h"
 
-
+/*
 
 class buildLLVM{
 public:
@@ -57,7 +57,7 @@ class bin2llvmBasicBlock
 public:
     bin2llvmBasicBlock(BPatch_basicBlock* obb, llvm::Function* top);
     llvm::BasicBlock* makeBasicBlock();
-    void populateBasicBlock();
+    void populateBasicBlock(llvm::BasicBlock* popTgt);
 private:
     BPatch_basicBlock* bblock;
     llvm::Function* parent;
@@ -72,5 +72,5 @@ public:
 private:
     BPatch_instruction* binsn;
 };
-
+*/
 #endif
