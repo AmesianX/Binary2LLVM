@@ -85,10 +85,14 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
     contents()<<curBBName<<":\n";
     std::vector<Instruction::Ptr> insns;
     curBB->getInstructions(insns);
+    //
+
     std::vector<Instruction::Ptr>::iterator insn_iter;
     for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
     {
+
         Instruction::Ptr insn = *insn_iter;
+        insn->getOperands();
         contents()<<"\t"<<insn->format()<<"\t:\t";
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
         insn->getReadSet( regsRead);
@@ -277,8 +281,17 @@ void loopExperiments(BPatch_basicBlockLoop* curLoop)
     BPatch_point* ept = lEntry->findEntryPoint();
     std::vector<BPatch_register> inLiveRegs;
     ept->getLiveRegisters(inLiveRegs);
+    std::set<std::string> liveRegsName;
+    for(auto liveRegIter=inLiveRegs.begin();
+        liveRegIter!=inLiveRegs.end();
+        liveRegIter++)
+    {
+        std::string regNames = uniformRegName((*liveRegIter).name());
+        liveRegsName.insert(regNames);
+    }
+
     //FIXME: got to make an alternative llvm?
-    std::string funcDecl = makeCFunctionDecl(inLiveRegs);
+    std::string funcDecl = makeCFunctionDecl(liveRegsName);
     contents()<<funcDecl<<"\n{\n";
 
     message()<<"loopEntry "<<getBBName(lEntry)<<"\n";
@@ -290,8 +303,8 @@ void loopExperiments(BPatch_basicBlockLoop* curLoop)
     std::set<std::string> usedRegsWrite;
     collectUsedRegs(allBBs,usedRegsRead,usedRegsWrite);
 
-    std::string regDecl = makeRegCDecl(inLiveRegs,usedRegsRead,usedRegsWrite);
-
+    std::string regDecl = makeRegCDecl(liveRegsName,usedRegsRead,usedRegsWrite);
+    contents()<<regDecl<<"\n";
     message()<<"read registers "<<"\n";
     for(auto regStrIter = usedRegsRead.begin();regStrIter!=usedRegsRead.end(); regStrIter++)
     {

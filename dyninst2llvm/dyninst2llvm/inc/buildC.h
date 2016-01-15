@@ -16,58 +16,6 @@
 
 typedef Dyninst::InstructionAPI::Result_Type usedRegType;
 
-// make every body lower case
-static std::string uniformRegName(std::string originalRegName)
-{
-    std::string rtStr = originalRegName;
-    boost::to_lower(rtStr);
-    return rtStr;
-}
-
-static int funcCounter=0;
-
-
-static std::string makeCFunctionDecl(std::vector<BPatch_register>& inLiveRegs
-                                     )
-{
-    // all live registers are input params
-    std::string decl = "void func";
-    decl+= boost::lexical_cast<std::string>(funcCounter);
-
-    funcCounter++;
-    decl+="(";
-    for(auto liveRegIter = inLiveRegs.begin();
-        liveRegIter!= inLiveRegs.end();
-        )
-    {
-        decl+=(*liveRegIter).name();
-        decl+=" ";
-        if(inLiveRegs.end()== ++liveRegIter)
-        {
-            decl+=")";
-            break;
-        }
-        else
-            decl+=",";
-    }
-
-    return decl;
-
-}
-
-
-static std::string makeRegCDecl(std::vector<BPatch_register>&inLiveRegs,
-                                std::set<std::string>& usedRegsRead,
-                                std::set<std::string>& usedRegsWrite)
-{
-
-    return "";
-}
-
-
-
-
-
 class RegisterTrans{
 public:
     static std::string regType2CStr(usedRegType rt)
@@ -108,6 +56,44 @@ public:
         }
     }
 
+    static usedRegType getRegisterType(std::string regName)
+    {
+        const char* charArray = regName.c_str();
+        char first = charArray[0];
+        char last = charArray[regName.size()-1];
+        if(first=='r' )
+        {
+            if(last=='d')
+                return usedRegType::s32;
+            if(last=='w')
+                return usedRegType::s16;
+            if(last=='b')
+                return usedRegType::s8;
+            return usedRegType::s64;
+        }
+        if(first=='e')
+        {
+            return usedRegType::s32;
+        }
+        if(last=='h' || last=='l')
+        {
+            return usedRegType::s16;
+        }
+        if(last=='f')
+        {
+            return usedRegType::bit_flag;
+        }
+        if(regName.substr(0,2)=="xm")
+        {
+            return usedRegType::sp_float;
+        }
+
+        assert(false && "cannot translate to regtype");
+
+
+    }
+
+
     static usedRegType getRegisterType(std::string regName,Dyninst::InstructionAPI::Instruction::Ptr& insn  )
     {
         const char* charArray = regName.c_str();
@@ -138,6 +124,91 @@ public:
     }
 
 };
+
+
+// make every body lower case
+static std::string uniformRegName(std::string originalRegName)
+{
+    std::string rtStr = originalRegName;
+    boost::to_lower(rtStr);
+    return rtStr;
+}
+
+static int funcCounter=0;
+
+
+static std::string makeCFunctionDecl(std::set<std::string>& inLiveRegs
+                                     )
+{
+    // all live registers are input params
+    std::string decl = "void func";
+    decl+= boost::lexical_cast<std::string>(funcCounter);
+
+    funcCounter++;
+    decl+="(";
+    for(auto liveRegIter = inLiveRegs.begin();
+        liveRegIter!= inLiveRegs.end();
+        )
+    {
+
+        std::string regName = *liveRegIter;
+        usedRegType curRegType = RegisterTrans::getRegisterType(regName);
+        std::string typeStr = RegisterTrans::regType2CStr(curRegType);
+        decl+= typeStr;
+        decl+=" ";
+        decl+=regName;
+
+        if(inLiveRegs.end()== ++liveRegIter)
+        {
+            decl+=")";
+            break;
+        }
+        else
+            decl+=",";
+    }
+
+    return decl;
+
+}
+
+
+static std::string makeRegCDecl(std::set<std::string>&inLiveRegs,
+                                std::set<std::string>& usedRegsRead,
+                                std::set<std::string>& usedRegsWrite)
+{
+
+    std::string regDecl="";
+    for(auto regReadIter = usedRegsRead.begin();
+        regReadIter!=usedRegsRead.end();
+        regReadIter++)
+    {
+        std::string regReadName = *regReadIter;
+        if(inLiveRegs.count(regReadName))
+            continue;
+        usedRegType curRegType = RegisterTrans::getRegisterType(regReadName);
+        std::string typeStr = RegisterTrans::regType2CStr(curRegType);
+        regDecl+="\t"+typeStr+" "+regReadName+";\n";
+    }
+    for(auto regWriteIter = usedRegsWrite.begin();
+        regWriteIter!=usedRegsWrite.end();
+        regWriteIter++)
+    {
+        std::string regWriteName = *regWriteIter;
+        if(inLiveRegs.count(regWriteName) || usedRegsRead.count(regWriteName))
+            continue;
+        usedRegType curRegType = RegisterTrans::getRegisterType(regWriteName);
+        std::string typeStr = RegisterTrans::regType2CStr(curRegType);
+        regDecl+="\t"+typeStr+" "+regWriteName+";\n";
+
+    }
+
+    return regDecl;
+}
+
+
+
+
+
 
 // we have raw registers -- these are the full registers
 // can be floating point
