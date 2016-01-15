@@ -9,6 +9,9 @@
 #include "buildLLVM.h"
 #include "buildC.h"
 #include <boost/lexical_cast.hpp>
+#include <boost/program_options.hpp>
+#include <fstream>
+namespace poption = boost::program_options;
 using namespace Dyninst::InstructionAPI;
 //typedef Dyninst::InstructionAPI::Expression insAPIExp;
 //typedef Dyninst::InstructionAPI::Instruction insAPIIns;
@@ -20,6 +23,19 @@ typedef enum {
     attach,
     open
 } accessType_t;
+
+
+
+static std::ostream* contentOut;
+static std::ostream* messageOut;
+static std::ostream& contents()
+{
+    return *contentOut;
+}
+static std::ostream& message()
+{
+    return *messageOut;
+}
 
 BPatch_addressSpace *startInstrumenting(accessType_t accessType,
     const char *name,
@@ -53,21 +69,50 @@ BPatch_function* extractFunction(BPatch_addressSpace * app,
         return functions[0];
 }
 
-
-void basicBlockExperiments(BPatch_basicBlock* curBB,
-                           std::map<BPatch_basicBlock*,std::string>& seenBlocks)
+static std::string getBBName(BPatch_basicBlock* curBB)
 {
-    std::string curBBName = seenBlocks[curBB];
-    std::cout<<"into basic block "<<curBBName<<"\n";
+    std::string curName="BB";
+    curName+=boost::lexical_cast<std::string>(curBB->getBlockNumber());
+
+    return curName;
+}
 
 
+void basicBlockExperiments(BPatch_basicBlock* curBB)
+{
+    std::string curBBName = getBBName(curBB);
+    message()<<"generating C for basic block "<<curBBName<<"\n";
+    contents()<<curBBName<<":\n";
     std::vector<Instruction::Ptr> insns;
     curBB->getInstructions(insns);
     std::vector<Instruction::Ptr>::iterator insn_iter;
     for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
     {
         Instruction::Ptr insn = *insn_iter;
-        std::cout<<insn->format()<<"\t:\n";
+        contents()<<"\t"<<insn->format()<<"\t:\t";
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
+        insn->getReadSet( regsRead);
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr>::iterator curRegReadIter;
+        contents()<<"register read: ";
+        for(curRegReadIter = regsRead.begin();
+                curRegReadIter!= regsRead.end();
+                curRegReadIter++ )
+        {
+            contents()<<(*curRegReadIter)->format()<<" ";
+        }
+
+        contents()<<"\t\t";
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsWrite;
+        insn->getWriteSet( regsWrite);
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr>::iterator curRegWriteIter;
+        contents()<<"register write: ";
+        for(curRegWriteIter = regsWrite.begin();
+                curRegWriteIter!= regsWrite.end();
+                curRegWriteIter++ )
+        {
+            contents()<<(*curRegWriteIter)->format()<<" ";
+        }
+        contents()<<"\n";
         /*
         if(insn->readsMemory())
         {
@@ -93,32 +138,43 @@ void basicBlockExperiments(BPatch_basicBlock* curBB,
             }
         }*/
     }
-
-
-}
-
-
-static std::string getBBName(BPatch_basicBlock* curBB)
-{
-    std::string curName="BB";
-    curName+=boost::lexical_cast<std::string>(curBB->getBlockNumber());
-
-    return curName;
-}
-
-std::string headBasicGraphExperiments(BPatch_basicBlock* curHead,
-                               BPatch_basicBlockLoop* containerLoop,
-                               std::map<BPatch_basicBlock*,std::string>& seenBlocks)
-{
-    if(!containerLoop->hasBlock(curHead))
-        return "";
-    if(seenBlocks.count(curHead))
+    std::vector<BPatch_edge*> allOutEdges;
+    curBB->getOutgoingEdges(allOutEdges);
+    contents()<<"\t";
+    for(auto edgeIter = allOutEdges.begin();
+        edgeIter!=allOutEdges.end();
+        edgeIter++)
     {
-        return seenBlocks[curHead];
+        BPatch_edge* curOutEdge = *edgeIter;
+        BPatch_edgeType ety = curOutEdge->getType();
+        BPatch_basicBlock* dest = curOutEdge->getTarget();
+        contents()<<ety<<":"<<getBBName(dest)<<";";
     }
-    std::string curBBName = getBBName(curHead);
-    seenBlocks[curHead]=curBBName;
+    contents()<<"\n";
 
+
+}
+
+
+
+void headBasicGraphExperiments(BPatch_basicBlock* curHead,
+                               BPatch_basicBlockLoop* containerLoop,
+                               std::set<std::string>& seenBlocks,
+                               std::set<std::string>& outBlocks)
+{
+    std::string curHeadName = getBBName(curHead);
+    if(!containerLoop->hasBlock(curHead))
+    {
+        outBlocks.insert(curHeadName);
+        return;
+    }
+    if(seenBlocks.count(curHeadName))
+    {
+        return;
+    }
+    seenBlocks.insert(curHeadName);
+
+    basicBlockExperiments(curHead);
 
 
     // then branch to all target
@@ -135,7 +191,8 @@ std::string headBasicGraphExperiments(BPatch_basicBlock* curHead,
         BPatch_edge* curOutEdge = *edgeIter;
         BPatch_edgeType ety = curOutEdge->getType();
         BPatch_basicBlock* nextHop = curOutEdge->getTarget();
-        destinationNames.push_back( headBasicGraphExperiments(nextHop,containerLoop,seenBlocks));
+        headBasicGraphExperiments(nextHop,containerLoop,seenBlocks,outBlocks);
+        destinationNames.push_back(getBBName(nextHop));
         destinationTypes.push_back(ety);
     }
 
@@ -148,7 +205,7 @@ std::string headBasicGraphExperiments(BPatch_basicBlock* curHead,
         destinationNames.push_back( headBasicGraphExperiments(nextHop,containerLoop,seenBlocks));
 
     }*/
-    std::cout<<"BasicBlock "<<curBBName<< " branches to : ";
+    /*std::cout<<"BasicBlock "<<curHeadName<< " branches to : ";
     auto destNameIter = destinationNames.begin();
     auto destTypeIter = destinationTypes.begin();
     for(;
@@ -158,28 +215,93 @@ std::string headBasicGraphExperiments(BPatch_basicBlock* curHead,
         std::cout<<*destNameIter<<":";
         std::cout<<*destTypeIter;
         std::cout<<"\t";
-    }
-    std::cout<<"\n";
-    // now deal with this block itself
-    basicBlockExperiments(curHead,seenBlocks);
-    return  seenBlocks[curHead];
+    }*/
+    //std::cout<<"\n";
 
+}
+void insertRegisterASTStr(std::set<RegisterAST::Ptr>& insRegs,
+                          std::set<std::string>& usedRegsName)
+{
+    for(auto regIter = insRegs.begin(); regIter!=insRegs.end(); regIter++ )
+    {
+        RegisterAST::Ptr curInsReg = *regIter;
+        usedRegsName.insert(uniformRegName( curInsReg->format()));
+    }
+}
+
+void collectUsedRegs(std::vector<BPatch_basicBlock*>& allBBs,
+                     std::set<std::string>& readRegsName,
+                     std::set<std::string>& writeRegsName
+                     )
+{
+    for(auto bbIter = allBBs.begin(); bbIter!=allBBs.end(); bbIter++)
+    {
+        BPatch_basicBlock* curBB = *bbIter;
+        std::vector<Instruction::Ptr> insns;
+        curBB->getInstructions(insns);
+        std::vector<Instruction::Ptr>::iterator insn_iter;
+        for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
+        {
+            Instruction::Ptr insn = *insn_iter;
+            std::set<RegisterAST::Ptr> regsRead;
+            insn->getReadSet(regsRead);
+            insertRegisterASTStr(regsRead,readRegsName);
+
+            std::set<RegisterAST::Ptr> regsWrite;
+            insn->getWriteSet(regsWrite);
+            insertRegisterASTStr(regsWrite,writeRegsName);
+        }
+    }
 }
 
 void loopExperiments(BPatch_basicBlockLoop* curLoop)
 {
+    std::vector<BPatch_basicBlock*> allBBs;
+    curLoop->getLoopBasicBlocks(allBBs);
+    message()<<" convert Loop with "<<allBBs.size()<<" basic blocks\n";
+    // dump all the basicblock seq num
+    for(auto bbIter = allBBs.begin(); bbIter!=allBBs.end(); bbIter++)
+    {
+        BPatch_basicBlock* curBB = *bbIter;
+        message()<<curBB->getBlockNumber()<<" ";
+    }
+    message()<<"\n";
+
     std::vector<BPatch_basicBlock*> loopEntries;
     curLoop->getLoopEntries(loopEntries);
+
     assert(loopEntries.size()>0 && "no loop entry found");
     BPatch_basicBlock* lEntry = loopEntries.at(0);
-    // from this point, we do depth first search
-    // for all the basicblocks in the loop
-    std::map<BPatch_basicBlock*,std::string> seenBlocks;
-    headBasicGraphExperiments(lEntry,curLoop,seenBlocks);
-    //std::vector<BPatch_basicBlock*> allBBs;
-    //curLoop->getLoopBasicBlocks(allBBs);
-    // for each of the instruction, check the result
-    // type, and check the register
+    // first look at registers that are live at this point
+    // these will be the input
+    BPatch_point* ept = lEntry->findEntryPoint();
+    std::vector<BPatch_register> inLiveRegs;
+    ept->getLiveRegisters(inLiveRegs);
+    //FIXME: got to make an alternative llvm?
+    std::string funcDecl = makeCFunctionDecl(inLiveRegs);
+    contents()<<funcDecl<<"\n{\n";
+
+    message()<<"loopEntry "<<getBBName(lEntry)<<"\n";
+    std::set<std::string> seenBlocks;
+    std::set<std::string> outBlocks;
+    curLoop->getLoopBasicBlocks(allBBs);
+    // for each basicblock check the used registers
+    std::set<std::string> usedRegsRead;
+    std::set<std::string> usedRegsWrite;
+    collectUsedRegs(allBBs,usedRegsRead,usedRegsWrite);
+
+    std::string regDecl = makeRegCDecl(inLiveRegs,usedRegsRead,usedRegsWrite);
+
+    message()<<"read registers "<<"\n";
+    for(auto regStrIter = usedRegsRead.begin();regStrIter!=usedRegsRead.end(); regStrIter++)
+    {
+        message()<<*regStrIter<<"\t";
+    }
+    headBasicGraphExperiments(lEntry,curLoop,seenBlocks,outBlocks);
+
+    contents()<<"}\n";
+    message()<<"loop done, press any key to continue\n";
+    getchar();
 
 
 }
@@ -187,21 +309,24 @@ void loopExperiments(BPatch_basicBlockLoop* curLoop)
 // make a function to try out
 // various features in the APIs
 void experiments(BPatch_addressSpace * app,
-                 char* functionName)
+                 std::string functionName)
 {
-    BPatch_function* curFun = extractFunction(app, functionName);
+
+    char *nameArr = new char[functionName.length() + 1]; // or
+    std::strcpy(nameArr, functionName.c_str());
+    BPatch_function* curFun = extractFunction(app, nameArr);
     BPatch_flowGraph *fg = curFun->getCFG();
-    //fg->getAllBasicBlocks(blocks);
     std::vector<BPatch_basicBlockLoop*> outerLoops;
     fg->getOuterLoops(outerLoops);
-    std::cout<<"Num of outer loops: "<<outerLoops.size()<<"\n";
+    message()<<"Num of outer loops: "<<outerLoops.size()<<"\n";
+    message()<<"Press any key to continue\n";
     getchar();
     for(auto outerLoopIter = outerLoops.begin(); outerLoopIter!= outerLoops.end();
         outerLoopIter++)
     {
         loopExperiments(*outerLoopIter);
-        getchar();
     }
+    delete [] nameArr;
 
 
 }
@@ -371,30 +496,71 @@ void iterateThroughFunction(BPatch_addressSpace * app,
 }
 */
 int main(int argc, char* argv[] ) {
-    const char *progName = argv[1]; // = ...
-    int progPID = 42; // = ...
+    poption::options_description desc("Allowed options");
+    desc.add_options()
+        ("help", "produce help message")
+        ("prog", poption::value<std::string>(), "name of the program")
+        ("proid",poption::value<int>(),"process id")
+        ("funname",poption::value<std::string>(),"function name")
+        ("ofile",poption::value<std::string>(),"output file name")
+    ;
+    poption::variables_map vm;
+    poption::store(poption::parse_command_line(argc, argv, desc), vm);
+    poption::notify(vm);
+
+    if (vm.count("help")) {
+        cout << desc << "\n";
+        return 1;
+    }
+    assert((vm.count("prog")||vm.count("proid"))&& "supply program name using -prog or process id using -procid");
+    assert(vm.count("funname") && "function name is not specified");
+    accessType_t curAccessType;
+    const char *progName;
+    int progPID;
+    if (vm.count("prog")) {
+        curAccessType = open;
+        progName = vm["prog"].as<std::string>().c_str();
+    } else {
+        curAccessType = attach;
+        progPID =  vm["procid"].as<int>();
+    }
+    ofstream file;
+    if(vm.count("ofile"))
+    {
+        std::string outputFileName = vm["ofile"].as<std::string>();
+        file.open(outputFileName);
+    }
+    if(file.is_open())
+        contentOut = &file;
+    else
+        contentOut = &std::cout;
+
+    // standard out for message
+    messageOut = &std::cout;
+
     const char *progArgv[] = {"InterestingProgram", "-h", NULL}; // = ...
-    // Example 1: create/attach/open a binary
-    BPatch_addressSpace *app = startInstrumenting(open, // or attach or open
+    message()<<"starting\n";
+
+    BPatch_addressSpace *app = startInstrumenting(curAccessType, // or attach or open
         progName,
         progPID,
         progArgv);
     for(auto regIter = app->getRegisters_begin(); regIter!=app->getRegisters_end(); regIter++)
     {
-        std::cout<<regIter->name();
-
+        message()<<regIter->name();
+        message()<<"\t";
     }
-    //getchar();
+    message()<<"\n";
+    std::string funcName = vm["funname"].as<std::string>();
     /*
-    buildLLVM llvmBuilder;
-    llvm::Module* go = llvmBuilder.makeLLVMModule();
-    iterateThroughFunction(app, argv[2],go);
-    llvm::outs()<<"\n";
-    llvmBuilder.dumpModuleContent(go,llvm::outs());*/
+        buildLLVM llvmBuilder;
+        llvm::Module* go = llvmBuilder.makeLLVMModule();
+        iterateThroughFunction(app, argv[2],go);
+        llvm::outs()<<"\n";
+        llvmBuilder.dumpModuleContent(go,llvm::outs());*/
 
-    // make the C module
-    //makeCFunction(app,argv[2]);
 
-    experiments(app,argv[2]);
+
+    experiments(app,funcName);
     return 0;
 }

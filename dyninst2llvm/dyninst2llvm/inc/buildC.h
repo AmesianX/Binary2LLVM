@@ -9,10 +9,64 @@
 #include "BPatch_function.h"
 #include "BPatch_point.h"
 #include "BPatch_flowGraph.h"
+#include "boost/lexical_cast.hpp"
+#include "boost/algorithm/string/case_conv.hpp"
 
 
 
 typedef Dyninst::InstructionAPI::Result_Type usedRegType;
+
+// make every body lower case
+static std::string uniformRegName(std::string originalRegName)
+{
+    std::string rtStr = originalRegName;
+    boost::to_lower(rtStr);
+    return rtStr;
+}
+
+static int funcCounter=0;
+
+
+static std::string makeCFunctionDecl(std::vector<BPatch_register>& inLiveRegs
+                                     )
+{
+    // all live registers are input params
+    std::string decl = "void func";
+    decl+= boost::lexical_cast<std::string>(funcCounter);
+
+    funcCounter++;
+    decl+="(";
+    for(auto liveRegIter = inLiveRegs.begin();
+        liveRegIter!= inLiveRegs.end();
+        )
+    {
+        decl+=(*liveRegIter).name();
+        decl+=" ";
+        if(inLiveRegs.end()== ++liveRegIter)
+        {
+            decl+=")";
+            break;
+        }
+        else
+            decl+=",";
+    }
+
+    return decl;
+
+}
+
+
+static std::string makeRegCDecl(std::vector<BPatch_register>&inLiveRegs,
+                                std::set<std::string>& usedRegsRead,
+                                std::set<std::string>& usedRegsWrite)
+{
+
+    return "";
+}
+
+
+
+
 
 class RegisterTrans{
 public:
