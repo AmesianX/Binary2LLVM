@@ -40,17 +40,20 @@ static std::ostream& message()
 BPatch_addressSpace *startInstrumenting(accessType_t accessType,
     const char *name,
     int pid, // For attach
-    const char *argv[]) { // For create
+    char *argv[]) { // For create
     BPatch_addressSpace *handle = NULL;
     switch (accessType) {
         case create:
-            handle = bpatch.processCreate(name, argv);
+            handle = bpatch.processCreate(name, const_cast<const char**>(argv));
+            message()<<"process created\n";
             break;
         case attach:
             handle = bpatch.processAttach(name, pid);
+            message()<<"process attached\n";
             break;
         case open:
             handle = bpatch.openBinary(name);
+            message()<<"binary opened\n";
             break;
     }
     return handle;
@@ -76,7 +79,22 @@ static std::string getBBName(BPatch_basicBlock* curBB)
 
     return curName;
 }
-
+std::string generateOperandValue(Instruction::Ptr insn)
+{
+    std::string rtStr="";
+    std::vector<Operand> curInsnOperand;
+    insn->getOperands(curInsnOperand);
+    for(auto operandIter = curInsnOperand.begin();
+        operandIter!=curInsnOperand.end();
+        operandIter++)
+    {
+        Operand& curOperand = *operandIter;
+        Expression::Ptr curOperandExp = curOperand.getValue();
+        rtStr+= curOperandExp->eval().format();
+        rtStr+= " :: ";
+    }
+    return rtStr;
+}
 
 void basicBlockExperiments(BPatch_basicBlock* curBB)
 {
@@ -90,9 +108,11 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
     std::vector<Instruction::Ptr>::iterator insn_iter;
     for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter)
     {
-
         Instruction::Ptr insn = *insn_iter;
-        insn->getOperands();
+
+        std::string allOperandValues = generateOperandValue(insn);
+        contents()<<"\t//"<<allOperandValues<<"\n";
+        //insn->getOperands();
         contents()<<"\t"<<insn->format()<<"\t:\t";
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
         insn->getReadSet( regsRead);
@@ -516,6 +536,8 @@ int main(int argc, char* argv[] ) {
         ("proid",poption::value<int>(),"process id")
         ("funname",poption::value<std::string>(),"function name")
         ("ofile",poption::value<std::string>(),"output file name")
+        ("start","start new program")
+        ("progarg",poption::value<std::vector<std::string>>()->multitoken(),"program arguments")
     ;
     poption::variables_map vm;
     poption::store(poption::parse_command_line(argc, argv, desc), vm);
@@ -530,9 +552,12 @@ int main(int argc, char* argv[] ) {
     accessType_t curAccessType;
     const char *progName;
     int progPID;
-    if (vm.count("prog")) {
-        curAccessType = open;
+    if (vm.count("prog")) {        
         progName = vm["prog"].as<std::string>().c_str();
+        if(vm.count("start"))
+            curAccessType = create;
+        else
+            curAccessType = open;
     } else {
         curAccessType = attach;
         progPID =  vm["procid"].as<int>();
@@ -551,13 +576,32 @@ int main(int argc, char* argv[] ) {
     // standard out for message
     messageOut = &std::cout;
 
-    const char *progArgv[] = {"InterestingProgram", "-h", NULL}; // = ...
+    char** progArgvall={NULL};
+    int argIndx = 0;
+
+    if(vm.count("progarg"))
+    {
+        std::vector<std::string> allArgs = vm["progarg"].as<std::vector<std::string>>();
+        progArgvall = new char*[allArgs.size()+1];
+        progArgvall[allArgs.size()] = NULL;
+        for(auto argIter = allArgs.begin(); argIter!= allArgs.end(); argIter++, argIndx++)
+        {
+            std::string curStr = *argIter;
+            char* curStrArr = new char[curStr.size()+1];
+            std::strcpy(curStrArr,curStr.c_str());
+            progArgvall[argIndx]= curStrArr;
+            curStrArr[curStr.size()]=NULL;
+        }
+    }
+    else
+        progArgvall={NULL};
+
     message()<<"starting\n";
 
     BPatch_addressSpace *app = startInstrumenting(curAccessType, // or attach or open
         progName,
         progPID,
-        progArgv);
+        progArgvall);
     for(auto regIter = app->getRegisters_begin(); regIter!=app->getRegisters_end(); regIter++)
     {
         message()<<regIter->name();
@@ -575,5 +619,11 @@ int main(int argc, char* argv[] ) {
 
 
     experiments(app,funcName);
+    for(int del = 0; del<argIndx; del++)
+    {
+        char* curArrPtr = progArgvall[del];
+        delete []curArrPtr;
+    }
+    delete[] progArgvall;
     return 0;
 }
