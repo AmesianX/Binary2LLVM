@@ -12,38 +12,37 @@
 #include "boost/lexical_cast.hpp"
 #include "boost/algorithm/string/case_conv.hpp"
 
+using namespace Dyninst::InstructionAPI;
 
-
-typedef Dyninst::InstructionAPI::Result_Type usedRegType;
 
 class RegisterTrans{
 public:
-    static std::string regType2CStr(usedRegType rt)
+    static std::string regType2CStr(Result_Type rt)
     {
         switch(rt)
         {
 
-        case usedRegType::s8:
+        case Result_Type::s8:
             return "signed char";
-        case usedRegType::u8:
+        case Result_Type::u8:
             return "uint8_t";
-        case usedRegType::s16:
+        case Result_Type::s16:
             return "short";
-        case usedRegType::u16:
+        case Result_Type::u16:
             return "uint16_t";
-        case usedRegType::s32:
+        case Result_Type::s32:
             return "int";
-        case usedRegType::u32:
+        case Result_Type::u32:
             return "uint32_t";
-        case usedRegType::s64:
+        case Result_Type::s64:
             return "long";
-        case usedRegType::u64:
+        case Result_Type::u64:
             return "uint64_t";
-        case usedRegType::sp_float:
+        case Result_Type::sp_float:
             return "float";
-        case usedRegType::dp_float:
+        case Result_Type::dp_float:
             return "double";
-        case usedRegType::bit_flag:
+        case Result_Type::bit_flag:
             return "char";
         // 48-bit pointers...yay Intel
         //m512,
@@ -56,7 +55,7 @@ public:
         }
     }
 
-    static usedRegType getRegisterType(std::string regName)
+    static Result_Type getRegisterType(std::string regName)
     {
         const char* charArray = regName.c_str();
         char first = charArray[0];
@@ -64,28 +63,28 @@ public:
         if(first=='r' )
         {
             if(last=='d')
-                return usedRegType::s32;
+                return Result_Type::s32;
             if(last=='w')
-                return usedRegType::s16;
+                return Result_Type::s16;
             if(last=='b')
-                return usedRegType::s8;
-            return usedRegType::s64;
+                return Result_Type::s8;
+            return Result_Type::s64;
         }
         if(first=='e')
         {
-            return usedRegType::s32;
+            return Result_Type::s32;
         }
         if(last=='h' || last=='l')
         {
-            return usedRegType::s16;
+            return Result_Type::s16;
         }
         if(last=='f')
         {
-            return usedRegType::bit_flag;
+            return Result_Type::bit_flag;
         }
         if(regName.substr(0,2)=="xm")
         {
-            return usedRegType::sp_float;
+            return Result_Type::sp_float;
         }
 
         assert(false && "cannot translate to regtype");
@@ -94,35 +93,106 @@ public:
     }
 
 
-    static usedRegType getRegisterType(std::string regName,Dyninst::InstructionAPI::Instruction::Ptr& insn  )
+    static Result_Type getRegisterType(std::string regName,Instruction::Ptr& insn  )
     {
         const char* charArray = regName.c_str();
         char first = charArray[0];
         char last = charArray[regName.size()-1];
         if(first=='R')
         {
-            return usedRegType::s64;
+            return Result_Type::s64;
         }
         if(first=='E')
         {
-            return usedRegType::s32;
+            return Result_Type::s32;
         }
         if(last=='H' || last=='L')
         {
-            return usedRegType::s16;
+            return Result_Type::s16;
         }
         if(last=='F')
         {
-            return usedRegType::bit_flag;
+            return Result_Type::bit_flag;
         }
         if(regName.substr(0,2)=="XM")
         {
-            return usedRegType::sp_float;
+            return Result_Type::sp_float;
         }
         assert(false && "cannot translate to regtype");
 
     }
 
+};
+
+class InstructionTrans{
+    static std::string translateOperand(Expression::Ptr exp)
+    {
+
+    }
+
+public:
+    static std::string translate2C(Instruction::Ptr& insn,
+                                   std::vector<std::string>& bbNames,
+                                   std::vector<BPatch_edgeType>& edgeTypes
+                                   )
+    {
+        //Expression::Ptr controlFlowTarget
+        //if(insn->getControlFlowTarget())
+
+        std::string rtStr="";
+        // do all the multiplex things
+        const Operation& curOp = insn->getOperation();
+        std::vector<Operand> curInsnOperands;
+        insn->getOperands(curInsnOperands);
+        for(auto operandIter = curInsnOperands.begin(); operandIter!= curInsnOperands.end(); operandIter++)
+        {
+
+        }
+
+        entryID curOpId = curOp.getID();
+        switch(curOpId)
+        {
+        case entryID::e_mov:
+            break;
+        case entryID::e_cmp:
+            break;
+        case entryID::e_jle:
+            assert(bbNames.size()==2 && edgeTypes.size()==2 && "branch with no valid successors");
+            break;
+        case entryID::e_lea:
+            break;
+        case entryID::e_sub:
+            break;
+        case entryID::e_add:
+            break;
+        case entryID::e_movsd:
+
+            break;
+        case entryID::e_movsd_sse:
+
+            break;
+        case entryID::e_subsd:
+            break;
+        case entryID::e_mulsd:
+            break;
+        case entryID::e_addsd:
+            break;
+        case entryID::e_jnz:
+            break;
+        case entryID::e_jz:
+            break;
+        case entryID::e_jmp:
+            break;
+        case entryID::e_movapd:
+            break;
+        case entryID::e_nop:
+            break;
+        default:
+            rtStr += "not implemented\n";
+        }
+
+        return rtStr;
+    }
 };
 
 
@@ -152,7 +222,7 @@ static std::string makeCFunctionDecl(std::set<std::string>& inLiveRegs
     {
 
         std::string regName = *liveRegIter;
-        usedRegType curRegType = RegisterTrans::getRegisterType(regName);
+        Result_Type curRegType = RegisterTrans::getRegisterType(regName);
         std::string typeStr = RegisterTrans::regType2CStr(curRegType);
         decl+= typeStr;
         decl+=" ";
@@ -185,7 +255,7 @@ static std::string makeRegCDecl(std::set<std::string>&inLiveRegs,
         std::string regReadName = *regReadIter;
         if(inLiveRegs.count(regReadName))
             continue;
-        usedRegType curRegType = RegisterTrans::getRegisterType(regReadName);
+        Result_Type curRegType = RegisterTrans::getRegisterType(regReadName);
         std::string typeStr = RegisterTrans::regType2CStr(curRegType);
         regDecl+="\t"+typeStr+" "+regReadName+";\n";
     }
@@ -196,7 +266,7 @@ static std::string makeRegCDecl(std::set<std::string>&inLiveRegs,
         std::string regWriteName = *regWriteIter;
         if(inLiveRegs.count(regWriteName) || usedRegsRead.count(regWriteName))
             continue;
-        usedRegType curRegType = RegisterTrans::getRegisterType(regWriteName);
+        Result_Type curRegType = RegisterTrans::getRegisterType(regWriteName);
         std::string typeStr = RegisterTrans::regType2CStr(curRegType);
         regDecl+="\t"+typeStr+" "+regWriteName+";\n";
 

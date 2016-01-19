@@ -95,12 +95,36 @@ std::string generateOperandValue(Instruction::Ptr insn)
     }
     return rtStr;
 }
+std::string generateInsnCTranslation(Instruction::Ptr insn,
+                                     std::vector<std::string>& bbNames,
+                                     std::vector<BPatch_edgeType>& edgeTypes)
+{
+    return InstructionTrans::translate2C(insn, bbNames, edgeTypes);
+}
 
 void basicBlockExperiments(BPatch_basicBlock* curBB)
 {
     std::string curBBName = getBBName(curBB);
     message()<<"generating C for basic block "<<curBBName<<"\n";
     contents()<<curBBName<<":\n";
+    std::vector<BPatch_edge*> allOutEdges;
+    curBB->getOutgoingEdges(allOutEdges);
+    contents()<<"//\t";
+    // the first destination is the taken branch
+    std::vector<std::string> destBBName;
+    std::vector<BPatch_edgeType> destTransferType;
+    for(auto edgeIter = allOutEdges.begin();
+        edgeIter!=allOutEdges.end();
+        edgeIter++)
+    {
+        BPatch_edge* curOutEdge = *edgeIter;
+        BPatch_edgeType ety = curOutEdge->getType();
+        BPatch_basicBlock* dest = curOutEdge->getTarget();
+        contents()<<ety<<":"<<getBBName(dest)<<";";
+        destBBName.push_back(getBBName(dest));
+        destTransferType.push_back(ety);
+    }
+    contents()<<"\n";
     std::vector<Instruction::Ptr> insns;
     curBB->getInstructions(insns);
     //
@@ -110,10 +134,11 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
     {
         Instruction::Ptr insn = *insn_iter;
 
-        std::string allOperandValues = generateOperandValue(insn);
-        contents()<<"\t//"<<allOperandValues<<"\n";
+        //std::string allOperandValues = generateOperandValue(insn);
+        //contents()<<"\t//"<<allOperandValues<<"\n";
         //insn->getOperands();
-        contents()<<"\t"<<insn->format()<<"\t:\t";
+        contents()<<"\t//"<<insn->format()<<"\t:\t";
+
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
         insn->getReadSet( regsRead);
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr>::iterator curRegReadIter;
@@ -136,7 +161,10 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
         {
             contents()<<(*curRegWriteIter)->format()<<" ";
         }
+        std::string cStatement = generateInsnCTranslation(insn,destBBName,destTransferType);
         contents()<<"\n";
+        contents()<<"\t"<<cStatement<<"\n";
+
         /*
         if(insn->readsMemory())
         {
@@ -162,19 +190,8 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
             }
         }*/
     }
-    std::vector<BPatch_edge*> allOutEdges;
-    curBB->getOutgoingEdges(allOutEdges);
-    contents()<<"\t";
-    for(auto edgeIter = allOutEdges.begin();
-        edgeIter!=allOutEdges.end();
-        edgeIter++)
-    {
-        BPatch_edge* curOutEdge = *edgeIter;
-        BPatch_edgeType ety = curOutEdge->getType();
-        BPatch_basicBlock* dest = curOutEdge->getTarget();
-        contents()<<ety<<":"<<getBBName(dest)<<";";
-    }
-    contents()<<"\n";
+
+
 
 
 }
@@ -277,6 +294,30 @@ void collectUsedRegs(std::vector<BPatch_basicBlock*>& allBBs,
         }
     }
 }
+
+/*void instrumentPoint(BPatch_point *point) {
+    //BPatch_image *appImage = app->getImage();
+    // We're interested in loads and stores
+    //BPatch_Set<BPatch_opCode> accessTypes;
+    //accessTypes.insert(BPatch_opLoad);
+    //accessTypes.insert(BPatch_opStore);
+    // Get points for each load and store
+    //std::vector<BPatch_function *> funcs;
+    //appImage->findFunction("InterestingProcedure", funcs);
+    //std::vector<BPatch_point *> *points = funcs[0]->findPoint(accessTypes);
+    // Create a snippet that calls printf with each effective address
+ std::vector<BPatch_snippet *> printfArgs;
+ BPatch_snippet *fmt = new BPatch_constExpr("Access at: 0x%lx\n");
+ printfArgs.push_back(fmt);
+ BPatch_snippet *eae = new BPatch_effectiveAddressExpr;
+ printfArgs.push_back(eae);
+ std::vector<BPatch_function *> printfFuncs;
+ appImage->findFunction("printf", printfFuncs);
+ BPatch_funcCallExpr printfCall(*(printfFuncs[0]), printfArgs);
+
+ app->insertSnippet(printfCall, *points);
+}
+*/
 
 void loopExperiments(BPatch_basicBlockLoop* curLoop)
 {
@@ -619,6 +660,19 @@ int main(int argc, char* argv[] ) {
 
 
     experiments(app,funcName);
+    BPatch_process *appProc = dynamic_cast<BPatch_process *>(app);
+    BPatch_binaryEdit *appBin = dynamic_cast<BPatch_binaryEdit *>(app);
+    if (appProc) {
+        appProc->continueExecution();
+        while (!appProc->isTerminated()) {
+            bpatch.waitForStatusChange();
+        }
+    }
+    /*if (appBin) {
+        appBin->writeFile(newName);
+    }*/
+
+
     for(int del = 0; del<argIndx; del++)
     {
         char* curArrPtr = progArgvall[del];
