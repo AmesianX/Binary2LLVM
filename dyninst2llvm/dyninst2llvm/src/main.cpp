@@ -163,7 +163,7 @@ void basicBlockExperiments(BPatch_basicBlock* curBB)
         }
         std::string cStatement = generateInsnCTranslation(insn,destBBName,destTransferType);
         contents()<<"\n";
-        contents()<<"\t"<<cStatement<<"\n";
+        contents()<<"\t"<<cStatement;
 
         /*
         if(insn->readsMemory())

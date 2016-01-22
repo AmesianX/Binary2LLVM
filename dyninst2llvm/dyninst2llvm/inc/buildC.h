@@ -43,7 +43,7 @@ public:
         case Result_Type::dp_float:
             return "double";
         case Result_Type::bit_flag:
-            return "char";
+            return "bool";
         // 48-bit pointers...yay Intel
         //m512,
         //dbl128,
@@ -60,31 +60,31 @@ public:
         const char* charArray = regName.c_str();
         char first = charArray[0];
         char last = charArray[regName.size()-1];
-        if(first=='r' )
+        if(first=='R' )
         {
-            if(last=='d')
+            if(last=='D')
                 return Result_Type::s32;
-            if(last=='w')
+            if(last=='W')
                 return Result_Type::s16;
-            if(last=='b')
+            if(last=='B')
                 return Result_Type::s8;
             return Result_Type::s64;
         }
-        if(first=='e')
+        if(first=='E')
         {
             return Result_Type::s32;
         }
-        if(last=='h' || last=='l')
+        if(last=='H' || last=='L')
         {
             return Result_Type::s16;
         }
-        if(last=='f')
+        if(last=='F')
         {
             return Result_Type::bit_flag;
         }
-        if(regName.substr(0,2)=="xm")
+        if(regName.substr(0,2)=="XM")
         {
-            return Result_Type::sp_float;
+            return Result_Type::dp_float;
         }
 
         assert(false && "cannot translate to regtype");
@@ -124,9 +124,43 @@ public:
 
 };
 
+
 class InstructionTrans{
-    static std::string translateOperand(Expression::Ptr exp)
+
+    static std::string dumpMemExpSet(std::set<Expression::Ptr>& allmem )
     {
+        std::string rtStr = "*(";
+        for(auto piter = allmem.begin(); piter!= allmem.end(); piter++)
+        {
+            Expression::Ptr curp = *piter;
+
+            rtStr += curp->format();
+        }
+        rtStr += ")";
+        return rtStr;
+    }
+    static std::string translateOperand(Operand op)
+    {
+        std::string rtStr = "";
+        bool mem=false;
+        if(op.readsMemory())
+        {
+            std::set<Expression::Ptr> readMemExp;
+            op.addEffectiveReadAddresses(readMemExp);
+            rtStr += dumpMemExpSet(readMemExp);
+            mem = true;
+        }
+
+        else if(op.writesMemory())
+        {
+            std::set<Expression::Ptr> writeMemExp;
+            op.addEffectiveWriteAddresses(writeMemExp);
+            rtStr+= dumpMemExpSet(writeMemExp);
+            mem=true;
+        }
+        if(!mem)
+            rtStr+=op.format(Dyninst::Arch_x86_64);
+        return rtStr;
 
     }
 
@@ -144,53 +178,138 @@ public:
         const Operation& curOp = insn->getOperation();
         std::vector<Operand> curInsnOperands;
         insn->getOperands(curInsnOperands);
+
+        std::vector<std::string> rightHand;
+        std::vector<std::string> leftHand;
+
         for(auto operandIter = curInsnOperands.begin(); operandIter!= curInsnOperands.end(); operandIter++)
         {
+            Operand curOperand= *operandIter;
+            std::string opStr = translateOperand(curOperand);
+            if(curOperand.isRead())
+            {
+                rightHand.push_back(opStr);
+            }
+            if(curOperand.isWritten())
+            {
+                leftHand.push_back(opStr);
+            }
 
+            std::cout<< curOperand.format(Dyninst::Arch_x86_64)<<" == "<<opStr<<"\n";
         }
-
         entryID curOpId = curOp.getID();
+        std::string takenDest = "";
+        std::string nonTakenDest = "";
+
         switch(curOpId)
         {
         case entryID::e_mov:
+        case entryID::e_lea:
+        case entryID::e_movsd:
+        case entryID::e_movsd_sse:
+        case entryID::e_movapd:
+
+            rtStr+=leftHand[0];
+            rtStr+="=";
+            rtStr+=rightHand[0];
+            rtStr+=";\n";
             break;
         case entryID::e_cmp:
+            rtStr+= "SF = ";
+            rtStr+=rightHand[0];
+            rtStr+=" <= ";
+            rtStr+=rightHand[1];
+            rtStr+=";\n";
+            rtStr+= "\tZF = ";
+            rtStr+=rightHand[0];
+            rtStr+=" == ";
+            rtStr+=rightHand[1];
+            rtStr+=";\n";
+            break;
+        case entryID::e_test:
+            rtStr+= "ZF = (";
+            rtStr+= rightHand[0];
+            rtStr+= "==";
+            rtStr+= rightHand[1];
+            rtStr+= "== 0);\n";
+            rtStr+= "\tSF = ";
+            rtStr+=rightHand[0];
+            rtStr+=" < 0 && ";
+            rtStr+=rightHand[1];
+            rtStr+= "< 0 ";
+            rtStr+=";\n";
             break;
         case entryID::e_jle:
+        case entryID::e_jnz:
+        case entryID::e_jz:
+
             assert(bbNames.size()==2 && edgeTypes.size()==2 && "branch with no valid successors");
+            if(edgeTypes.at(0) == CondJumpTaken)
+            {
+                takenDest+=bbNames[0];
+                nonTakenDest+=bbNames[1];
+            }
+            else
+            {
+                takenDest+=bbNames[1];
+                nonTakenDest+=bbNames[0];
+            }
+            if(curOpId == entryID::e_jle)
+                rtStr+= "if(SF)";
+            else if(curOpId == entryID::e_jnz)
+                rtStr+= "if(!ZF)";
+            else
+                rtStr+= "if(ZF)";
+            rtStr+= " goto ";
+            rtStr += takenDest;
+            rtStr += ";\n\telse goto ";
+            rtStr += nonTakenDest;
+            rtStr +=";\n";
             break;
-        case entryID::e_lea:
-            break;
-        case entryID::e_sub:
-            break;
-        case entryID::e_add:
-            break;
-        case entryID::e_movsd:
-
-            break;
-        case entryID::e_movsd_sse:
-
-            break;
+        case entryID::e_sub:            
         case entryID::e_subsd:
-            break;
-        case entryID::e_mulsd:
+            rtStr += leftHand[0];
+            rtStr += " = ";
+            rtStr += rightHand[0];
+            rtStr += "-";
+            rtStr += rightHand[1];
+            rtStr +=";\n";
             break;
         case entryID::e_addsd:
+        case entryID::e_add:
+            rtStr += leftHand[0];
+            rtStr += " = ";
+            rtStr += rightHand[0];
+            rtStr += "+";
+            rtStr += rightHand[1];
+            rtStr +=";\n";
             break;
-        case entryID::e_jnz:
+        case entryID::e_mulsd:
+            rtStr += leftHand[0];
+            rtStr += " = ";
+            rtStr += rightHand[0];
+            rtStr += "*";
+            rtStr += rightHand[1];
+            rtStr +=";\n";
             break;
-        case entryID::e_jz:
+        case entryID::e_xor:
+            rtStr += leftHand[0];
+            rtStr += " = ";
+            rtStr += rightHand[0];
+            rtStr += "^";
+            rtStr += rightHand[1];
+            rtStr += ";\n";
             break;
         case entryID::e_jmp:
-            break;
-        case entryID::e_movapd:
+            rtStr += "goto ";
+            rtStr += bbNames[0];
+            rtStr += "\n;";
             break;
         case entryID::e_nop:
             break;
         default:
             rtStr += "not implemented\n";
         }
-
         return rtStr;
     }
 };
@@ -200,7 +319,7 @@ public:
 static std::string uniformRegName(std::string originalRegName)
 {
     std::string rtStr = originalRegName;
-    boost::to_lower(rtStr);
+    boost::to_upper(rtStr);
     return rtStr;
 }
 
