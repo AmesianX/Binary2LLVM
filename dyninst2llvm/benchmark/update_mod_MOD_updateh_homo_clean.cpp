@@ -15,6 +15,7 @@ void func0(long R13,long R15,long RCX,long RSP, long* STACK,
             void* PARTRDIRAX, 
             void* PARTRBPRAX,
             void* R8RAXPART, 
+            void* RBXRAXPART,
             // read write port below
             void* PARTRDXRAX, 
             void* PARTRSIRAX,
@@ -83,6 +84,9 @@ void func0(long R13,long R15,long RCX,long RSP, long* STACK,
 /**** +R13@BB10639: 0x758   per outer -- thourgh R10 ****/
 /**** +RSI@BB10636: 0x6bdc8 per outer -- through stack -0x60 ***/
 
+/**** RBX@BB10642 :0x7fdc5a503540 RAX =(0..209)*8+8     : RBXRAXPART   *****/
+/**** +R13@BB10639: 0x758   per outer -- through R9
+/**** +RSI@BB10636: 0x6bdc8 per outer -- through stack -0x60 ***/ 
 //=============================all read above ==============================//
 
 /**** RDX@BB10642 0x7fdc6cb7fda8  RAX =(0..209)*8+0x8   : PARTRDXRAX   *****/
@@ -162,11 +166,11 @@ BB10641:
 	goto BB10642;
 BB10642:
     XMM2=XMM3;
-	XMM0= *(PARTR10RAX + R10 + RAX * 8 + 8);
+	XMM0= *(PARTR10RAX + R10 + RAX * 8 + 8); //E()
 	XMM2 = XMM2-*(PARTR9RAX+R9 + RAX * 8 + 8);    
 	XMM4=*(PARTR12RAX+R12 + RAX * 8 + 8);    
 	XMM0 = XMM0-XMM1;
-	XMM5=*(PARTRDIRAX+RDI + RAX * 8 + 10);
+	XMM5=*(PARTRDIRAX+RDI + RAX * 8 + 0x10); //Ez(i+1,j,k)
 	XMM0 = XMM0*XMM8;
 	XMM2 = XMM2*XMM7;
 	XMM0 = XMM0+XMM2;
@@ -179,7 +183,7 @@ BB10642:
 	XMM0 = XMM0-XMM3;
 	XMM0 = XMM0*XMM6;
 	XMM0 = XMM0+XMM2;
-	XMM2=*(R8RAXPART+R8 + RAX * 8 + 0x10);
+	XMM2=*(R8RAXPART+R8 + RAX * 8 + 0x10); //Ey(i+1,j,k)
 	XMM1 = XMM1-XMM2;
 	XMM0 = XMM0+*(PARTRSIRAX + RSI + RAX * 8 + 8);
 	XMM1 = XMM1*XMM6;
